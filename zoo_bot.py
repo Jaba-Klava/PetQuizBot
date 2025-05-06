@@ -274,8 +274,8 @@ async def about_program(update: Update, context: CallbackContext) -> None:
         text="🐾 Программа опеки над животными\n\n"
         "Вы можете стать опекуном выбранного животного в Московском зоопарке!\n\n"
         "Контакты:\n"
-        "📞 +7 (495) 777-77-77\n"
-        "✉️ opieka@moscowzoo.ru",
+        "📞 +7 (962) 971-38-75\n"
+        "✉️ zoofriends@moscowzoo.ru",
         reply_markup=InlineKeyboardMarkup([
             [InlineKeyboardButton("На главную", callback_data="start_quiz")]
         ])
