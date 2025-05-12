@@ -6,7 +6,7 @@ from telegram.ext import (
     Application,
     CommandHandler,
     CallbackQueryHandler,
-    CallbackContext,
+    ContextTypes,
     MessageHandler,
     filters
 )
@@ -18,42 +18,54 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+ADMIN_USERNAME = "@kris_mem"
+
 # Список животных и их описаний
 ANIMALS = {
-    "Амурский тигр": {
+   "Амурский тигр": {
         "description": "Вы — сила и благородство! Как амурский тигр, вы уверены в себе.",
+        "image": "tiger.jpg"
     },
     "Белый медведь": {
         "description": "Вы выносливы и любите холод! Белый медведь — ваш дух-покровитель.",
+        "image": "polar_bear.jpg"
     },
     "Рысь": {
         "description": "Вы загадочны и наблюдательны. Как рысь, предпочитаете действовать наверняка.",
+        "image": "lynx.jpg"
     },
     "Снежный барс": {
         "description": "Вы редки и прекрасны. Снежный барс — олицетворение вашей независимости.",
+        "image": "snow_leopard.jpg"
     },
     "Манул": {
         "description": "Вы — царь мемов и любитель уюта. Манул с его гримасами — это про вас!",
+        "image": "manul.jpg"
     },
     "Фенек": {
         "description": "Вы обаятельны и любите быть в центре внимания, как этот ушастый лис.",
+        "image": "fennec.jpg"
     },
     "Сурикат": {
         "description": "Вы общительны и бдительны. Сурикат — ваш тотем!",
+        "image": "meerkat.jpg"
     },
     "Китоглав": {
         "description": "Вы философ и немного инопланетянин. Китоглав с его «улыбкой» — ваше тотемное животное!",
+        "image": "shoebill.jpg"
     },
     "Жаба ага": {
         "description": "Вы эксцентричны и ядовиты (в хорошем смысле)! Мастер выживания в любых условиях.",
-        "image": "zhaba.jpg"
+        "image": "toad.jpg"
     },
     "Красная панда": {
         "description": "Вы милы и немного ленивы. Красная панда — ваш пушистый двойник.",
+        "image": "red_panda.jpg"
     }
 }
 
-# 10 сбалансированных вопросов
+
+# Вопросы викторины
 QUIZ_QUESTIONS = [
     {
         "question": "Какой климат вам комфортнее?",
@@ -158,10 +170,34 @@ QUIZ_QUESTIONS = [
     }
 ]
 
+# 7658675653:AAFkWmwGFK_D4PoVY3RqG-7MibmpioR0XH8
+# Глобальные переменные
 user_answers = {}
+user_results = {}
 
-async def start(update: Update, context: CallbackContext) -> None:
-    """Приветствие и начало викторины"""
+def get_main_menu_keyboard():
+    buttons = [
+        [InlineKeyboardButton("Поделиться результатом", callback_data="share_result")],
+        [InlineKeyboardButton("Контакты зоопарка", callback_data="zoo_contacts")],
+        [InlineKeyboardButton("Оценить бота", callback_data="rate_bot")],
+        [InlineKeyboardButton("Пройти ещё раз", callback_data="start_quiz")]
+    ]
+    return InlineKeyboardMarkup(buttons)
+
+def get_rating_keyboard():
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("Не очень", callback_data="rate_1"),
+         InlineKeyboardButton("Неплохо", callback_data="rate_2"),
+         InlineKeyboardButton("Хорошо", callback_data="rate_3"),
+         InlineKeyboardButton("Отлично!", callback_data="rate_4"),
+         InlineKeyboardButton("Все супер!", callback_data="rate_5")]
+         
+    ]
+)
+
+
+
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.message.from_user
     await update.message.reply_text(
         f"Привет, {user.first_name}! 🐾\n"
@@ -172,28 +208,26 @@ async def start(update: Update, context: CallbackContext) -> None:
         ])
     )
 
-async def start_quiz(update: Update, context: CallbackContext) -> None:
-    """Начало викторины"""
+async def start_quiz(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    user_answers[query.from_user.id] = []
-    await ask_question(update, context, 0)
+    user_id = query.from_user.id
+    user_answers[user_id] = []
+    user_results[user_id] = None
+    await ask_question(query, context, 0)
 
-async def ask_question(update: Update, context: CallbackContext, index: int) -> None:
-    """Задаёт вопрос с вариантами"""
+async def ask_question(query, context: ContextTypes.DEFAULT_TYPE, index: int):
     question = QUIZ_QUESTIONS[index]
     keyboard = [
         [InlineKeyboardButton(opt, callback_data=f"ans_{index}_{i}")]
         for i, opt in enumerate(question["options"])
     ]
-    
-    await update.callback_query.edit_message_text(
+    await query.edit_message_text(
         text=f"Вопрос {index+1}/{len(QUIZ_QUESTIONS)}:\n{question['question']}",
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
-async def handle_answer(update: Update, context: CallbackContext) -> None:
-    """Обработка ответа"""
+async def handle_answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     
@@ -206,90 +240,129 @@ async def handle_answer(update: Update, context: CallbackContext) -> None:
     user_answers[user_id].append((q_idx, a_idx))
     
     if q_idx + 1 < len(QUIZ_QUESTIONS):
-        await ask_question(update, context, q_idx + 1)
+        await ask_question(query, context, q_idx + 1)
     else:
-        await show_result(update, context, user_id)
+        await show_result(query, context, user_id)
 
-async def show_result(update: Update, context: CallbackContext, user_id: int) -> None:
-    """Определение результата с новым алгоритмом"""
-    animal_scores = defaultdict(int)
-    jaba_points = 0
-    
-    for q_idx, a_idx in user_answers[user_id]:
-        question = QUIZ_QUESTIONS[q_idx]
-        
-        # Основные баллы
-        for animal, weight in question['weights'].items():
-            if animal != 'special':
-                animal_scores[animal] += weight
-        
-        # Специальные баллы для жабы
-        if 'special' in question['weights'] and a_idx in question['weights']['special']:
-            jaba_points += question['weights']['special'][a_idx].get('Жаба ага', 0)
-    
-    # Жаба побеждает только при достаточном количестве специальных баллов
-    if jaba_points >= 15:  # 3+ "жабьих" ответа
-        result_animal = 'Жаба ага'
-    else:
-        # Удаляем жабу из общего подсчета
-        animal_scores.pop('Жаба ага', None)
-        
-        # Выбираем случайно из топ-3 животных
-        top_animals = sorted(animal_scores.items(), key=lambda x: x[1], reverse=True)[:3]
-        result_animal = random.choice(top_animals)[0] if top_animals else 'Манул'
-    
+async def show_result(query, context: ContextTypes.DEFAULT_TYPE, user_id: int):
+    # Упрощенный расчет результата
+    result_animal = random.choice(list(ANIMALS.keys()))
     description = ANIMALS[result_animal]['description']
-    keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("Узнать о программе", callback_data="about_program")],
-        [InlineKeyboardButton("Пройти ещё раз", callback_data="start_quiz")]
-    ])
+    user_results[user_id] = result_animal
+    
+    # Отправляем результат с фото
+    with open(f"images/{ANIMALS[result_animal]['image']}", 'rb') as photo:
+        await context.bot.send_photo(
+            chat_id=query.message.chat.id,
+            photo=photo,
+            caption=f"🎉 Твоё тотемное животное — {result_animal}!\n\n{description}"
+        )
+    
+    # Отправляем меню отдельным сообщением
+    await context.bot.send_message(
+        chat_id=query.message.chat.id,
+        text="Что вы хотите сделать дальше?",
+        reply_markup=get_main_menu_keyboard())
+    
 
-    # Отправка фото для жабы
-    if result_animal == 'Жаба ага' and 'image' in ANIMALS[result_animal]:
-        try:
-            with open(ANIMALS[result_animal]['image'], 'rb') as photo:
-                await context.bot.send_photo(
-                    chat_id=update.callback_query.message.chat.id,
-                    photo=photo,
-                    caption=f"🎉 Твоё тотемное животное — {result_animal}!\n\n{description}",
-                    reply_markup=keyboard
-                )
-        except FileNotFoundError:
-            await send_text_result(update, result_animal, description, keyboard)
-    else:
-        await send_text_result(update, result_animal, description, keyboard)
+async def share_result(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    user_id = query.from_user.id
+    
+    if user_id in user_results:
+        result_animal = user_results[user_id]
+        description = ANIMALS[result_animal]['description']
+        
+        share_text = (
+            f"🐾 Я прошёл викторину и мое тотемное животное — {result_animal}!\n\n"
+            f"{description}\n\n"
+            "Попробуй и ты: @PetQuizBot"
+        )
+        
+        await query.edit_message_text(
+            text=f"{share_text}\n\nСкопируй этот текст и поделись с друзьями!",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("← Назад", callback_data="back_to_result")]
+            ])
+        )
 
-async def send_text_result(update: Update, animal: str, desc: str, keyboard) -> None:
-    """Отправляет текстовый результат"""
-    await update.callback_query.edit_message_text(
-        text=f"🎉 Твоё тотемное животное — {animal}!\n\n{desc}",
-        reply_markup=keyboard
-    )
+async def back_to_result(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    await context.bot.send_message(
+        chat_id=query.message.chat.id,
+        text="Что вы хотите сделать дальше?",
+        reply_markup=get_main_menu_keyboard())
+    
 
-async def about_program(update: Update, context: CallbackContext) -> None:
-    """Информация о программе опеки"""
+async def zoo_contacts(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     await query.edit_message_text(
-        text="🐾 Программа опеки над животными\n\n"
-        "Вы можете стать опекуном выбранного животного в Московском зоопарке!\n\n"
-        "Контакты:\n"
-        "📞 +7 (962) 971-38-75\n"
-        "✉️ zoofriends@moscowzoo.ru",
+        text="🐾 Контакты Московского зоопарка:\n\n"
+        "📞 Телефон: 7 (962) 971-38-75\n"
+        "✉️ zoofriends@moscowzoo.ru\n\n"
+        "По вопросам работы бота пишите @kris_mem",
         reply_markup=InlineKeyboardMarkup([
-            [InlineKeyboardButton("На главную", callback_data="start_quiz")]
+            [InlineKeyboardButton("← Назад", callback_data="back_to_result")]
         ])
     )
 
-def main() -> None:
-    """Запуск бота"""
+async def rate_bot(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    await query.edit_message_text(
+        text="Пожалуйста, оцените работу бота:",
+        reply_markup=get_rating_keyboard())
+    reply_markup=InlineKeyboardMarkup([
+            [InlineKeyboardButton("← Назад", callback_data="back_to_result")]
+        ])
+
+async def handle_rating(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    rating = int(query.data.split('_')[1])
+    user = query.from_user
+    
+    # Отправляем оценку администратору
+    await context.bot.send_message(
+        chat_id=ADMIN_USERNAME,
+        text=f"⭐ Новая оценка бота от @{user.username}: {rating}/5"
+    )
+    
+    await query.edit_message_text(
+        text="Спасибо за вашу оценку!",
+        reply_markup=InlineKeyboardMarkup([
+            [InlineKeyboardButton("← Назад", callback_data="back_to_result")]
+        ])
+    )
+
+async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    if query.data == "start_quiz":
+        await start_quiz(update, context)
+    elif query.data.startswith("ans_"):
+        await handle_answer(update, context)
+    elif query.data == "share_result":
+        await share_result(update, context)
+    elif query.data == "zoo_contacts":
+        await zoo_contacts(update, context)
+    elif query.data == "rate_bot":
+        await rate_bot(update, context)
+    elif query.data.startswith("rate_"):
+        await handle_rating(update, context)
+    elif query.data == "back_to_result":
+        await back_to_result(update, context)
+
+def main():
     application = Application.builder().token("7658675653:AAFkWmwGFK_D4PoVY3RqG-7MibmpioR0XH8").build()
     
-    # Обработчики
     application.add_handler(CommandHandler("start", start))
-    application.add_handler(CallbackQueryHandler(start_quiz, pattern="^start_quiz$"))
-    application.add_handler(CallbackQueryHandler(handle_answer, pattern="^ans_"))
-    application.add_handler(CallbackQueryHandler(about_program, pattern="^about_program$"))
+    application.add_handler(CallbackQueryHandler(handle_callback))
     
     application.run_polling()
 
